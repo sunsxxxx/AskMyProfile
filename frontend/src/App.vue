@@ -47,7 +47,7 @@ function resetConversation() {
             <span>个人知识助手</span>
           </div>
           <h1>你好，想了解我的哪一面？</h1>
-          <p>这是一个基于真实项目经历与技术资料构建的 AI 助手。你可以询问我的技术栈、项目经历、<br class="desktop-break" />实习经历或 GitHub 项目。</p>
+          <p>这是一个基于真实项目经历与技术资料构建的 AI 助手。你可以询问我的技术栈、项目经历、实习经历或 GitHub 项目。</p>
 
           <div class="prompt-grid">
             <button v-for="prompt in prompts" :key="prompt.text" type="button" @click="send(prompt.text)">
