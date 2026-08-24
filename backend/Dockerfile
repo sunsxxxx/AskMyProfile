@@ -9,8 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY backend/pyproject.toml ./pyproject.toml
+RUN pip install --upgrade pip \
+    && python -c 'import subprocess, sys, tomllib; config = tomllib.load(open("pyproject.toml", "rb")); requirements = config["build-system"]["requires"] + config["project"]["dependencies"]; subprocess.check_call([sys.executable, "-m", "pip", "install", *requirements])'
+
 COPY backend/app ./app
-RUN pip install --upgrade pip && pip install .
+RUN pip install --no-deps --no-build-isolation .
 
 COPY knowledge /knowledge
 EXPOSE 8000
