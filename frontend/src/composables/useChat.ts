@@ -1,4 +1,4 @@
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { ChatApiError, streamChat } from '../api/chat'
 import type { ChatMessage, SourceItem, SSEEvent } from '../types/chat'
 
@@ -33,7 +33,10 @@ export function useChat(onUpdated?: () => void) {
     if (!content || isStreaming.value) return
     input.value = ''
     messages.value.push({ id: crypto.randomUUID(), role: 'user', content })
-    const assistant: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: '' }
+    // Keep the same reactive proxy that Vue renders. Mutating the raw object
+    // after pushing it into a ref-backed array does not trigger updates, which
+    // makes all streamed chunks appear only when another state change renders.
+    const assistant = reactive<ChatMessage>({ id: crypto.randomUUID(), role: 'assistant', content: '' })
     messages.value.push(assistant)
     isStreaming.value = true
     status.value = '正在连接...'
