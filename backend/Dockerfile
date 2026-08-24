@@ -1,8 +1,11 @@
 FROM python:3.12-slim AS runtime
 
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /app
 COPY backend/pyproject.toml ./pyproject.toml
