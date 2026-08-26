@@ -120,7 +120,7 @@ button, textarea { font: inherit; } button { color: inherit; }
 .shell { height: 100%; height: 100dvh; padding: clamp(12px, 2.5dvh, 26px) clamp(12px, 2.5vw, 40px) clamp(10px, 2.3dvh, 24px); background: radial-gradient(circle at 56% 38%, rgba(255,255,255,.98) 0 13%, rgba(242,247,255,.84) 45%, rgba(229,237,251,.86) 76%, rgba(248,249,251,.96) 100%); }
 .stage { width: min(1070px, 100%); height: 100%; margin: auto; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 38px; }
 .shell:not(.shell--chat) { overflow: hidden; }
-.shell:not(.shell--chat) .stage { grid-template-rows: minmax(0, 1fr) auto; gap: clamp(10px, 3.3dvh, 32px); }
+.shell:not(.shell--chat) .stage { grid-template-rows: minmax(0, 1fr) auto; gap: clamp(10px, 2.4dvh, 22px); }
 .conversation { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #dfe3ea transparent; }
 .conversation::-webkit-scrollbar { width: 6px; }
 .conversation::-webkit-scrollbar-track { background: transparent; }
@@ -128,19 +128,20 @@ button, textarea { font: inherit; } button { color: inherit; }
 .conversation::-webkit-scrollbar-thumb:hover { background: #c9ced7; }
 .shell:not(.shell--chat) .conversation { display: flex; overflow: hidden; }
 .welcome-card { width: 100%; max-height: min(590px, 100%); margin: auto 0; display: flex; flex-direction: column; justify-content: center; padding: clamp(18px, 4.9dvh, 46px) clamp(22px, 5.2vw, 64px) clamp(16px, 4.4dvh, 42px); border: 1px solid rgba(225,229,237,.7); border-radius: clamp(22px, 2vw, 32px); background: rgba(255,255,255,.8); box-shadow: 0 12px 40px rgba(64,89,134,.075); backdrop-filter: blur(18px); }
-.welcome__eyebrow { width: fit-content; display: flex; align-items: center; gap: clamp(7px, 1vw, 10px); padding: clamp(7px, 1.05dvh, 10px) clamp(12px, 1.3vw, 17px); border-radius: 999px; background: #f7f8fb; font-size: clamp(12px, 1.6dvh, 15px); font-weight: 600; }
+.welcome__eyebrow { width: fit-content; display: flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; background: rgba(247,248,250,.68); color: #5f6671; font-size: clamp(12px, 1.45dvh, 13px); font-weight: 500; }
 .spark-image { position: relative; width: 22px; height: 22px; display: block; overflow: hidden; }
 .spark-image img { width: 100%; height: 100%; display: block; object-fit: contain; }
-.spark-image--eyebrow { width: 18px; height: 18px; }
-.welcome-card h1 { margin: clamp(16px, 3.6dvh, 34px) 0 clamp(8px, 1.6dvh, 15px); font-size: clamp(30px, min(3.3vw, 5.3dvh), 50px); line-height: 1.14; letter-spacing: -.045em; }
+.spark-image--eyebrow { width: 16px; height: 16px; }
+.welcome-card h1 { margin: clamp(15px, 3dvh, 27px) 0 clamp(8px, 1.5dvh, 14px); font-size: clamp(29px, min(3vw, 4.7dvh), 44px); font-weight: 600; line-height: 1.18; letter-spacing: -.035em; }
 .welcome-card > p { margin: 0; color: #626977; font-size: clamp(13px, 1.75dvh, 16px); line-height: clamp(1.55em, 3.15dvh, 1.9em); }
-.prompt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(8px, 1.7dvh, 16px) clamp(10px, 1.4vw, 18px); margin-top: clamp(14px, 3.6dvh, 34px); }
-.prompt-grid button { min-height: clamp(60px, 9.6dvh, 90px); display: grid; grid-template-columns: clamp(38px, 4.7dvh, 44px) 1fr clamp(36px, 4.5dvh, 42px); align-items: center; gap: clamp(11px, 1.35vw, 17px); padding: clamp(8px, 1.3dvh, 12px) clamp(10px, 1.1vw, 14px) clamp(8px, 1.3dvh, 12px) clamp(12px, 1.6vw, 20px); border: 1px solid #dfe3eb; border-radius: clamp(14px, 1.3vw, 19px); background: rgba(255,255,255,.38); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s, box-shadow .18s; }
-.prompt-grid button:hover { border-color: #bbc4d3; background: #fff; transform: translateY(-2px); box-shadow: 0 9px 24px rgba(61,79,113,.10); }
-.prompt-icon { width: clamp(38px, 4.7dvh, 44px); height: clamp(38px, 4.7dvh, 44px); display: grid; place-items: center; border-radius: clamp(10px, 1vw, 13px); background: #050505; color: #fff; }
-.prompt-icon svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }.prompt-icon .fill { fill: currentColor; stroke: none; }
-.prompt-text { font-size: clamp(13px, 1.75dvh, 16px); font-weight: 600; }.prompt-arrow { width: clamp(36px, 4.5dvh, 42px); height: clamp(36px, 4.5dvh, 42px); display: grid; place-items: center; border-radius: 50%; background: #f8f9fc; }
-.prompt-arrow svg { width: 21px; height: 21px; fill: none; stroke: #17191d; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.prompt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(8px, 1.35dvh, 12px) clamp(10px, 1.2vw, 16px); margin-top: clamp(14px, 2.8dvh, 25px); }
+.prompt-grid button { min-height: clamp(60px, 8dvh, 74px); display: grid; grid-template-columns: clamp(34px, 4dvh, 38px) 1fr 24px; align-items: center; gap: clamp(10px, 1.15vw, 14px); padding: clamp(8px, 1.1dvh, 10px) clamp(12px, 1.2vw, 16px); border: 1px solid rgba(226,230,236,.82); border-radius: clamp(14px, 1.3vw, 18px); background: rgba(255,255,255,.26); text-align: left; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease; }
+.prompt-grid button:hover { border-color: #d4d9e1; background: rgba(255,255,255,.72); transform: translateY(-1px); box-shadow: 0 5px 14px rgba(61,79,113,.055); }
+.prompt-icon { width: clamp(34px, 4dvh, 38px); height: clamp(34px, 4dvh, 38px); display: grid; place-items: center; border-radius: 50%; background: #f3f4f6; color: #34383f; }
+.prompt-icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }.prompt-icon .fill { fill: currentColor; stroke: none; }
+.prompt-text { font-size: clamp(13px, 1.7dvh, 15px); font-weight: 500; }.prompt-arrow { width: 24px; height: 24px; display: grid; place-items: center; color: #777e89; background: transparent; transition: color .18s ease, transform .18s ease; }
+.prompt-grid button:hover .prompt-arrow { color: #363b43; transform: translateX(2px); }
+.prompt-arrow svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .truth-note { display: flex; align-items: center; gap: 11px; margin-top: clamp(12px, 3.6dvh, 34px); color: #707786; font-size: clamp(11px, 1.45dvh, 13px); }.truth-note svg { width: clamp(17px, 2.1dvh, 20px); height: clamp(17px, 2.1dvh, 20px); fill: none; stroke: #687485; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .composer-wrap { position: relative; }.composer { min-height: clamp(56px, 7.6dvh, 70px); display: flex; align-items: center; gap: 12px; border: 1px solid #e2e6ed; border-radius: 999px; padding: 6px 10px 6px 19px; background: rgba(255,255,255,.94); box-shadow: 0 5px 18px rgba(45,71,118,.055); transition: border-color .18s, box-shadow .18s; }
 .composer:focus-within { border-color: #c7cfda; box-shadow: 0 0 0 3px rgba(105,128,169,.055), 0 6px 20px rgba(45,71,118,.065); }
