@@ -96,6 +96,7 @@ async def test_normal_sse_stream():
     )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
+    assert 'event: status\ndata: {"message":"正在处理问题..."}' in response.text
     assert 'event: intermediate\ndata: {"content":"我先查一下资料。"}' in response.text
     assert "event: token\ndata: {\"content\":\"我\"}" in response.text
     assert "event: sources" in response.text

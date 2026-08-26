@@ -78,7 +78,7 @@ async def chat_stream(payload: ChatRequest, request: Request) -> Response:
 
     async def generate() -> AsyncIterator[bytes]:
         yield sse_event("start", {"request_id": request_id})
-        yield sse_event("status", {"message": "正在查找相关资料..."})
+        yield sse_event("status", {"message": "正在处理问题..."})
         try:
             async for event, data in service.stream(payload.message, str(payload.thread_id)):
                 if await request.is_disconnected():

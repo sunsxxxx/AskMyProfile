@@ -48,7 +48,8 @@ export function useChat(onUpdated?: () => void) {
       if (event.event === 'status' && data && !Array.isArray(data)) {
         status.value = String(data.message ?? '')
       } else if (event.event === 'intermediate' && data && !Array.isArray(data)) {
-        assistant.intermediate = (assistant.intermediate ?? '') + String(data.content ?? '')
+        const trace = String(data.content ?? '').trim()
+        if (trace) assistant.intermediate = [assistant.intermediate, trace].filter(Boolean).join('\n\n')
       } else if (event.event === 'token' && data && !Array.isArray(data)) {
         assistant.content += String(data.content ?? '')
         status.value = ''

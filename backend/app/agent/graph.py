@@ -10,7 +10,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from app.agent.prompts import (
     AGENT_WORK_PROMPT,
     FINAL_ANSWER_PROMPT,
-    PUBLIC_PROGRESS_PROMPT,
     SYSTEM_PROMPT,
 )
 from app.agent.tools import build_tools
@@ -60,23 +59,12 @@ def build_graph(
         )
         return {"messages": [response]}
 
-    async def progress(state: MessagesState) -> dict[str, Any]:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{PUBLIC_PROGRESS_PROMPT}"),
-                *state["messages"],
-            ]
-        )
-        return {"messages": [response]}
-
     builder = StateGraph(MessagesState)
     builder.add_node("agent", agent)
     builder.add_node("tools", ToolNode(tools, handle_tool_errors=True))
-    builder.add_node("progress", progress)
     builder.add_node("answer", answer)
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition, {"tools": "tools", "__end__": "answer"})
-    builder.add_edge("tools", "progress")
-    builder.add_edge("progress", "agent")
+    builder.add_edge("tools", "agent")
     builder.add_edge("answer", END)
     return builder.compile(checkpointer=checkpointer)
