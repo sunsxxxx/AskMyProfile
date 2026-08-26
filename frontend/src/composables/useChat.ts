@@ -47,6 +47,8 @@ export function useChat(onUpdated?: () => void) {
       const data = event.data as Record<string, unknown> | SourceItem[] | null
       if (event.event === 'status' && data && !Array.isArray(data)) {
         status.value = String(data.message ?? '')
+      } else if (event.event === 'intermediate' && data && !Array.isArray(data)) {
+        assistant.intermediate = (assistant.intermediate ?? '') + String(data.content ?? '')
       } else if (event.event === 'token' && data && !Array.isArray(data)) {
         assistant.content += String(data.content ?? '')
         status.value = ''

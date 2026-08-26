@@ -85,6 +85,8 @@ async def chat_stream(payload: ChatRequest, request: Request) -> Response:
                     break
                 if event == "token":
                     yield sse_event("token", {"content": data})
+                elif event == "intermediate":
+                    yield sse_event("intermediate", {"content": data})
                 elif event == "status":
                     yield sse_event("status", {"message": data})
                 elif event == "sources":
