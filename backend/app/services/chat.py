@@ -32,7 +32,7 @@ class GraphChatService:
                 chunk, metadata = part["data"]
                 content = chunk.content
                 node = metadata.get("langgraph_node")
-                if node == "agent" and isinstance(content, str) and content:
+                if node == "progress" and isinstance(content, str) and content:
                     yield "intermediate", content
                 elif node == "answer" and isinstance(content, str) and content:
                     yield "token", content

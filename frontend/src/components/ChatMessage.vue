@@ -8,7 +8,7 @@ defineProps<{ message: ChatMessage; streaming?: boolean }>()
     <div v-if="message.role === 'assistant'" class="avatar" aria-hidden="true"><span class="avatar__image"><img src="/spark-mark.svg" alt="" /></span></div>
     <div class="message__body">
       <div v-if="message.intermediate" class="intermediate" aria-label="处理中间状态">
-        <span class="intermediate__label">处理中</span>
+        <span class="intermediate__label">处理过程</span>
         <MarkdownContent :content="message.intermediate" /><span v-if="streaming && !message.content" class="cursor cursor--muted" aria-hidden="true"></span>
       </div>
       <div v-if="message.content" class="bubble"><MarkdownContent :content="message.content" /><span v-if="streaming" class="cursor" aria-hidden="true"></span></div>
