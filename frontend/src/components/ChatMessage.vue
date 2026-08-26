@@ -57,7 +57,7 @@ watch(
 </script>
 <template>
   <article class="message" :class="[`message--${message.role}`, { 'message--error': message.error }]">
-    <div v-if="message.role === 'assistant'" class="avatar" aria-hidden="true"><span class="avatar__image"><img src="/spark-mark.svg" alt="" /></span></div>
+    <div v-if="message.role === 'assistant'" class="avatar" aria-hidden="true"><span class="avatar__image"><img src="/ai-avatar.png" alt="" /></span></div>
     <div class="message__body">
       <div v-if="intermediateContent" class="intermediate" :class="{ 'intermediate--collapsed': !intermediateExpanded }" aria-label="处理过程">
         <button
@@ -70,7 +70,7 @@ watch(
             <span class="intermediate__state" aria-hidden="true">{{ message.content ? '✓' : '✦' }}</span>
             {{ message.content ? completedLabel : '处理过程' }}
           </span>
-          <svg class="intermediate__indicator" :class="{ 'intermediate__indicator--expanded': intermediateExpanded }" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+          <svg class="intermediate__indicator" :class="{ 'intermediate__indicator--expanded': intermediateExpanded }" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
         </button>
         <div class="intermediate__reveal" :class="{ 'intermediate__reveal--expanded': intermediateExpanded }" :aria-hidden="!intermediateExpanded">
           <div class="intermediate__content">
@@ -80,7 +80,7 @@ watch(
       </div>
       <div v-if="message.content" class="bubble"><MarkdownContent :content="message.content" /><span v-if="streaming" class="cursor" aria-hidden="true"></span></div>
       <details v-if="message.sources?.length" class="sources">
-        <summary><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg><span>参考资料&nbsp; · &nbsp;{{ message.sources.length }}</span></summary>
+        <summary><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg><span>参考资料&nbsp; · &nbsp;{{ message.sources.length }}</span></summary>
         <ul><li v-for="source in message.sources" :key="`${source.source}:${source.section}`"><span>{{ source.title }}</span><small>{{ source.section || source.source }}</small></li></ul>
       </details>
     </div>
@@ -92,8 +92,8 @@ watch(
 .message--assistant + .message--user { margin-top: 22px; }
 .message__body { min-width: 0; width: min(74%, 760px); }
 .message--user .message__body { width: auto; max-width: min(66%, 620px); }
-.avatar { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; margin-top: 1px; border: 1px solid rgba(226,229,235,.84); border-radius: 50%; background: rgba(255,255,255,.7); box-shadow: 0 1px 4px rgba(34,43,58,.045); }
-.avatar__image { width: 19px; height: 19px; display: block; }
+.avatar { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; margin-top: 1px; }
+.avatar__image { width: 34px; height: 34px; display: block; }
 .avatar__image img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .bubble { color: #30323a; }
 .message--assistant .bubble { padding: 0 2px; border: 0; background: transparent; }
@@ -102,12 +102,12 @@ watch(
 .cursor { display: inline-block; width: 5px; height: 16px; margin-left: 3px; vertical-align: -3px; border-radius: 2px; background: #69768a; animation: blink 1s step-end infinite; }
 .intermediate { margin: 0 0 12px; padding: 9px 11px; border-radius: 10px; background: rgba(246,247,249,.8); color: #7f8691; font-size: 12px; line-height: 1.5; transition: padding .2s ease, background .2s ease; }
 .intermediate--collapsed { padding: 2px 1px; background: transparent; }
-.intermediate__toggle { width: 100%; min-height: 22px; padding: 0; border: 0; background: transparent; color: inherit; display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; text-align: left; }
+.intermediate__toggle { width: fit-content; min-height: 22px; padding: 0; border: 0; background: transparent; color: inherit; display: flex; align-items: center; justify-content: flex-start; gap: 6px; cursor: pointer; text-align: left; }
 .intermediate__toggle:hover { color: #5f6671; }
 .intermediate__label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; }
 .intermediate__state { width: 14px; color: #9aa1ab; text-align: center; }
 .intermediate__indicator { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s ease; }
-.intermediate__indicator--expanded { transform: rotate(180deg); }
+.intermediate__indicator--expanded { transform: rotate(90deg); }
 .intermediate__reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .2s ease, opacity .18s ease; }
 .intermediate__reveal--expanded { grid-template-rows: 1fr; opacity: 1; }
 .intermediate__content { min-height: 0; overflow: hidden; }
@@ -120,12 +120,12 @@ watch(
 .sources summary::-webkit-details-marker { display: none; }
 .sources summary:hover { color: #555d69; }
 .sources summary svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform .18s ease; }
-.sources[open] summary svg { transform: rotate(180deg); }
+.sources[open] summary svg { transform: rotate(90deg); }
 .sources ul { list-style: none; padding: 7px 0 0 20px; margin: 0; display: grid; gap: 0; }
 .sources li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 18px; padding: 7px 4px; border-bottom: 1px solid rgba(229,232,237,.72); }
 .sources li:last-child { border-bottom: 0; }
 .sources li span { overflow: hidden; color: #5b626e; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.sources small { max-width: 45%; overflow: hidden; color: #9aa0aa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sources small { min-width: 8em; color: #9aa0aa; font-size: 11px; text-align: right; white-space: normal; overflow-wrap: anywhere; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (max-width: 1024px) {
   .message { padding-right: 14px; padding-left: 14px; }
@@ -138,10 +138,10 @@ watch(
   .message__body { width: calc(100% - 41px); max-width: none; }
   .message--user .message__body { max-width: 85%; }
   .avatar { width: 32px; height: 32px; }
-  .avatar__image { width: 18px; height: 18px; }
+  .avatar__image { width: 32px; height: 32px; }
   .message--user .bubble { padding: 10px 14px; }
   .intermediate { margin-bottom: 10px; }
   .sources li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .sources small { max-width: 100%; }
+  .sources small { min-width: 0; text-align: left; }
 }
 </style>
