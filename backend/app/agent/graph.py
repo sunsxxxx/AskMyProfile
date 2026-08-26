@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -10,12 +10,32 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from app.agent.prompts import (
     AGENT_WORK_PROMPT,
     FINAL_ANSWER_PROMPT,
+    FINAL_ANSWER_REQUEST,
     SYSTEM_PROMPT,
 )
 from app.agent.tools import build_tools
 from app.core.config import Settings
 from app.github.client import GitHubClient
 from app.rag.retriever import RetrieverService
+
+
+def _prepare_final_answer_messages(
+    messages: list[BaseMessage],
+) -> tuple[list[BaseMessage], AIMessage | None]:
+    planner_message: AIMessage | None = None
+    conversation = messages
+    if messages and isinstance(messages[-1], AIMessage) and not messages[-1].tool_calls:
+        planner_message = messages[-1]
+        conversation = messages[:-1]
+
+    return (
+        [
+            SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{FINAL_ANSWER_PROMPT}"),
+            *conversation,
+            HumanMessage(content=FINAL_ANSWER_REQUEST),
+        ],
+        planner_message,
+    )
 
 
 def build_graph(
@@ -51,13 +71,13 @@ def build_graph(
         return {"messages": [response]}
 
     async def answer(state: MessagesState) -> dict[str, Any]:
-        response = await model.ainvoke(
-            [
-                SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{FINAL_ANSWER_PROMPT}"),
-                *state["messages"],
-            ]
-        )
-        return {"messages": [response]}
+        prompt_messages, planner_message = _prepare_final_answer_messages(state["messages"])
+        response = await model.ainvoke(prompt_messages)
+        message_updates: list[BaseMessage] = []
+        if planner_message is not None and planner_message.id:
+            message_updates.append(RemoveMessage(id=planner_message.id))
+        message_updates.append(response)
+        return {"messages": message_updates}
 
     builder = StateGraph(MessagesState)
     builder.add_node("agent", agent)
