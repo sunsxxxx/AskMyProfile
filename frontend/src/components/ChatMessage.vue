@@ -132,6 +132,12 @@ watch(
   .message__body { width: min(75%, 730px); }
   .message--user .message__body { max-width: 72%; }
 }
+@media (max-width: 768px) {
+  .sources { width: 100%; max-width: 100%; }
+  .sources ul { width: 100%; max-width: 100%; padding: 7px 16px 0 20px; box-sizing: border-box; }
+  .sources li { width: 100%; max-width: 100%; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 10px 0 11px; }
+  .sources small { min-width: 0; text-align: left; }
+}
 @media (max-width: 720px) {
   .message { gap: 9px; padding: 11px 3px; }
   .message--user { padding: 7px 3px 7px 15%; }
@@ -141,7 +147,5 @@ watch(
   .avatar__image { width: 32px; height: 32px; }
   .message--user .bubble { padding: 10px 14px; }
   .intermediate { margin-bottom: 10px; }
-  .sources li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .sources small { min-width: 0; text-align: left; }
 }
 </style>
