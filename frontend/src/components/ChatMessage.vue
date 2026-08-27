@@ -135,8 +135,8 @@ watch(
 @media (max-width: 768px) {
   .sources { width: 100%; max-width: 100%; }
   .sources ul { width: 100%; max-width: 100%; padding: 7px 16px 0 20px; box-sizing: border-box; }
-  .sources li { width: 100%; max-width: 100%; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 10px 0 11px; }
-  .sources small { min-width: 0; text-align: left; }
+  .sources li { width: 100%; max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 10px 0 11px; }
+  .sources small { min-width: 0; text-align: right; white-space: nowrap; overflow-wrap: normal; }
 }
 @media (max-width: 720px) {
   .message { gap: 9px; padding: 11px 3px; }
