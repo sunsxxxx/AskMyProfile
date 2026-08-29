@@ -61,7 +61,7 @@ function resetConversation() {
         <div v-if="messages.length === 0" class="welcome-card">
           <div class="welcome__eyebrow">
             <span class="spark-image spark-image--eyebrow" aria-hidden="true"><img src="/spark-mark.svg" alt="" /></span>
-            <span>个人知识助手</span>
+            <span>孙兴的数字分身</span>
           </div>
           <h1>你好，想了解我的哪一面？</h1>
           <p>这是一个基于真实项目经历与技术资料构建的 AI 助手。你可以询问我的技术栈、项目经历、实习经历或 GitHub 项目。</p>
@@ -101,7 +101,7 @@ function resetConversation() {
           <span v-if="messages.length === 0" class="composer-spark" aria-hidden="true">
             <span class="spark-image"><img src="/spark-mark.svg" alt="" /></span>
           </span>
-          <textarea ref="inputArea" v-model="input" maxlength="2000" rows="1" :disabled="isStreaming" aria-label="向个人知识助手提问" placeholder="询问项目、经历或技术栈…" @keydown="onKeydown"></textarea>
+          <textarea ref="inputArea" v-model="input" maxlength="2000" rows="1" :disabled="isStreaming" aria-label="向孙兴的数字分身提问" placeholder="询问项目、经历或技术栈…" @keydown="onKeydown"></textarea>
           <button v-if="isStreaming" class="send-button stop-button" type="button" aria-label="停止生成" @click="stop"><span></span></button>
           <button v-else class="send-button" type="button" :disabled="!canSend" aria-label="发送" @click="submit()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M7 10l5-5 5 5" /></svg></button>
         </div>
