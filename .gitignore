@@ -14,3 +14,11 @@ frontend/dist/
 *.log
 backend/logs/*
 !backend/logs/.gitkeep
+
+# Private knowledge base content; keep knowledge/README.md and examples/ public.
+knowledge/profile/
+knowledge/education/
+knowledge/experience/
+knowledge/projects/
+knowledge/skills/
+knowledge/interview/
