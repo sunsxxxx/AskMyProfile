@@ -74,7 +74,7 @@ Markdown Source of Truth
   → 统一 Retriever + category/project metadata filter
 ```
 
-每个 chunk 带有相对路径 `source/path`、`category`、`title`、`project` 和 `section`，绝不保存服务器绝对路径。删除 Redis 后可从 Markdown 完整重建。当前只有明确标记的示例资料；参见 [knowledge/README.md](knowledge/README.md)。
+每个 chunk 带有相对路径 `source/path`、`category`、`title`、`project` 和 `section`，绝不保存服务器绝对路径。删除 Redis 后可从 Markdown 完整重建。当前资料已根据本地工程源码核验整理；参见 [knowledge/README.md](knowledge/README.md)。
 
 ## Redis 的四种用途
 
@@ -171,11 +171,11 @@ docker compose exec backend python -m app.scripts.reindex
 
 访问 `http://localhost:8080`。Compose 使用 `redis:8.4` 并开启 AOF volume。首次聊天前必须执行一次 reindex。
 
-## 填写真实个人资料并重新索引
+## 维护真实个人资料并重新索引
 
 1. 阅读 [knowledge/README.md](knowledge/README.md)。
-2. 新建 `profile/`、`education/`、`experience/`、`projects/`、`skills/`、`interview/` 中需要的 Markdown。
-3. 删除 `knowledge/examples/` 示例，避免回答中出现示例提示。
+2. 在 `profile/`、`education/`、`experience/`、`projects/`、`skills/`、`interview/` 中新增或更新经过核验的 Markdown。
+3. 检查分类、标题层级、事实依据与能力边界，确保 `knowledge/examples/` 保持为空。
 4. 执行：
 
 ```bash
