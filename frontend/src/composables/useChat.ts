@@ -36,7 +36,12 @@ export function useChat(onUpdated?: () => void) {
     // Keep the same reactive proxy that Vue renders. Mutating the raw object
     // after pushing it into a ref-backed array does not trigger updates, which
     // makes all streamed chunks appear only when another state change renders.
-    const assistant = reactive<ChatMessage>({ id: crypto.randomUUID(), role: 'assistant', content: '' })
+    const assistant = reactive<ChatMessage>({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      intermediate: '正在处理问题…',
+    })
     messages.value.push(assistant)
     isStreaming.value = true
     status.value = '正在处理问题…'
