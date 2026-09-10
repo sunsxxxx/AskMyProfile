@@ -121,6 +121,7 @@ REDIS_URL=redis://localhost:6379
 可选配置：
 
 ```env
+LOG_TIMEZONE=Asia/Shanghai
 GITHUB_USERNAME=公开 GitHub 用户名
 GITHUB_TOKEN=可留空；配置后有更高 API 限额
 GITHUB_CACHE_TTL=600

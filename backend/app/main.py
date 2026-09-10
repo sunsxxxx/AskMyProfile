@@ -16,6 +16,7 @@ from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from app.agent.graph import build_graph
 from app.api.routes import router
 from app.core.config import Settings, get_settings
+from app.core.logging import TimezoneFormatter
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.redis import create_redis_client
 from app.core.security import ClientIPResolver
@@ -29,13 +30,14 @@ from app.services.chat import GraphChatService
 logger = logging.getLogger(__name__)
 
 
-def configure_logging(log_level: str) -> None:
+def configure_logging(log_level: str, log_timezone: str) -> None:
     level = getattr(logging, log_level.upper(), logging.INFO)
     log_dir = Path(__file__).resolve().parents[1] / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s"
+    formatter = TimezoneFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        log_timezone,
     )
     file_handler = RotatingFileHandler(
         log_dir / "backend.log",
@@ -75,7 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        configure_logging(configured.log_level)
+        configure_logging(configured.log_level, configured.log_timezone)
         redis = create_redis_client(configured)
         app.state.settings = configured
         app.state.redis = redis

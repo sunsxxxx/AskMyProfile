@@ -4,6 +4,7 @@ import logging
 import sys
 
 from app.core.config import get_settings
+from app.core.logging import TimezoneFormatter
 from app.rag.embeddings import create_embeddings
 from app.rag.loader import MarkdownKnowledgeLoader
 from app.rag.vector_store import create_vector_store, drop_application_index
@@ -13,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = get_settings()
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        TimezoneFormatter("%(asctime)s %(levelname)s %(message)s", settings.log_timezone)
+    )
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     if not settings.dashscope_api_key:
         logger.error("索引失败：缺少 DASHSCOPE_API_KEY")
         return 2

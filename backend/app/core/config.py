@@ -3,9 +3,12 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
+from zoneinfo import ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from app.core.logging import resolve_timezone
 
 
 class Settings(BaseSettings):
@@ -18,6 +21,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     log_level: str = "INFO"
+    log_timezone: str = "Asia/Shanghai"
 
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
@@ -61,6 +65,15 @@ class Settings(BaseSettings):
         if value.strip() == "*":
             raise ValueError("FRONTEND_ORIGIN must be an explicit origin")
         return value.rstrip("/")
+
+    @field_validator("log_timezone")
+    @classmethod
+    def validate_log_timezone(cls, value: str) -> str:
+        try:
+            resolve_timezone(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("LOG_TIMEZONE must be a valid IANA timezone") from exc
+        return value
 
     @property
     def knowledge_dir(self) -> Path:
