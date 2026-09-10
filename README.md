@@ -259,3 +259,61 @@ docker compose config
 **README 中的指令会不会被执行**：系统 Prompt 明确把知识库、README 和工具结果降权为不可信资料；仍建议不要把 Secret 写入任何知识库文件。
 
 **如何创建 Redis Vector Index**：无需手写 schema。`reindex` 初始化 `RedisVectorStore` 并在首次写入时创建 `REDIS_INDEX_NAME`；metadata schema 与 COSINE 距离在 `backend/app/rag/vector_store.py` 中定义。
+
+
+## 聊天历史 TTL
+
+`CHAT_HISTORY_TTL_MINUTES=1440`（默认值，必须为正整数）控制聊天历史保留时间，单位为分钟。
+启动时传给 `AsyncRedisSaver.from_conn_string` 的配置为
+`ttl={"default_ttl": configured.chat_history_ttl_minutes, "refresh_on_read": True}`。
+已核对本地 `langgraph-checkpoint-redis==0.5.2` 的实际 API，依赖最低版本设为 0.5.2。
+[官方 TTL 文档](https://redis-developer.github.io/langgraph-redis/main/user_guide/ttl.html)。
+
+checkpoint、工具写入及相关 registry key 由官方 Saver 设置 Redis 原生 TTL，无定时清理任务。
+访问 checkpoint 会刷新其 TTL；当前完整 MessagesState 会在后续对话中继续保存。
+旧运行快照未被访问时可独立过期，不影响最新快照中的完整对话。
+应用自己的 `chat:committed:v1:<thread_id>` 提交指针使用相同保留时间，读取时通过 GETEX 续期、提交时通过原有 Lua CAS 加 SET EX 设置过期时间。
+指针或 checkpoint 已过期时，相同 thread_id 从新对话开始，不返回“checkpoint missing”错误。
+`RATE_LIMIT_KEY_TTL_SECONDS` 和 RAG 知识库配置保持独立，不受聊天 TTL 配置影响。
+
+更改环境配置后需重启后端。对话过期针对服务器端保存的数据，不会主动清除浏览器已显示的消息。
+注意：官方配置只作用于启用后的写入，以及已有 TTL 的 checkpoint 读取续期；不会自动为部署前 TTL=-1 的旧 checkpoint 补设期限。
+已有永久数据需要单独安排一次性迁移；本次没有扫描、删除或修改既有生产数据，也没有引入清理任务。
+
+### 用 Redis CLI 验证
+
+先通过聊天页面发送一条消息，记录请求中的 thread_id，然后执行（Docker 环境可在各命令前加 `docker compose exec redis`）：
+
+```bash
+redis-cli GET "chat:committed:v1:<前端thread_id>"
+redis-cli TTL "chat:committed:v1:<前端thread_id>"
+```
+
+GET 返回的 JSON 包含内部 `thread_id`（`chat-run-...`）和最终 `checkpoint_id`。
+使用该内部 thread_id 查找关联 key，再将查到的完整 key 传给 TTL：
+
+```bash
+redis-cli --scan --pattern "*chat-run-<运行UUID>*"
+redis-cli TTL "<上一步查到的checkpoint或checkpoint_write或write_keys_zset key>"
+```
+
+刚创建的 key 应接近 **86400** 秒。等待几秒再次执行 TTL，数值应下降。
+使用同一前端 thread_id 再发消息，提交指针会指向新运行；按 GET → SCAN → TTL 再检查，新运行的 key 和提交指针应重新接近 86400。
+上次被恢复的最终 checkpoint 也会通过官方 refresh_on_read 续期。
+仅执行 Redis CLI 的 GET、SCAN 或 TTL 不会触发 Saver 的读取续期。
+24 小时不通过应用/Saver 访问后，对应 key 的 TTL 应为 **-2**（已不存在）；**-1** 表示没有过期时间，需要检查是否为启用配置前的旧数据。
+共享搜索索引和知识库不属于单个聊天的历史数据，不要求随 thread 过期。
+
+### 自动验证
+
+```powershell
+# 在项目根目录运行，不访问外部模型。
+backend/.venv/Scripts/python.exe -m pytest backend/tests -q -p no:cacheprovider
+
+# 可选：仅指向专用测试 Redis 8 / Redis Stack，启用官方 Saver 集成测试。
+$env:TEST_REDIS_URL = 'redis://localhost:6379'
+backend/.venv/Scripts/python.exe -m pytest backend/tests/test_history_ttl.py -q -p no:cacheprovider
+```
+
+集成测试检查新建 checkpoint/相关 key 的 86400 秒 TTL，将测试专属 key 的 TTL 调短后验证官方读取恢复 TTL，再验证多轮对话和原生过期。
+测试只清理本次 UUID 对应的数据，不执行 FLUSHDB，不调用真实 LLM；未设置 TEST_REDIS_URL 时跳过该项。

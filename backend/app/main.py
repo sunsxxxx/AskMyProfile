@@ -115,6 +115,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     checkpointer_context = AsyncRedisSaver.from_conn_string(
                         configured.redis_url,
+                        ttl={
+                            "default_ttl": configured.chat_history_ttl_minutes,
+                            "refresh_on_read": True,
+                        },
                         connection_args={
                             "socket_connect_timeout": configured.redis_connect_timeout_seconds,
                             "socket_timeout": configured.redis_connect_timeout_seconds,
@@ -123,7 +127,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     checkpointer = await checkpointer_context.__aenter__()
                     await checkpointer.asetup()
                     graph = build_graph(configured, retriever, github, checkpointer)
-                    app.state.chat_service = GraphChatService(graph, redis)
+                    app.state.chat_service = GraphChatService(
+                        graph, redis,
+                        history_ttl_minutes=configured.chat_history_ttl_minutes,
+                    )
                 except Exception:
                     logger.exception("Chat service initialization failed")
             yield

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     redis_connect_timeout_seconds: float = Field(default=3, gt=0)
     redis_index_name: str = "interview_knowledge"
+    chat_history_ttl_minutes: int = Field(default=1440, gt=0)
 
     github_username: str = ""
     github_token: str = ""

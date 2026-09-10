@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from app.agent.memory import MEMORY_TOOL_NAME, get_current_turn_messages
 from app.agent.prompts import (
     AGENT_WORK_PROMPT,
     FINAL_ANSWER_PROMPT,
@@ -22,6 +23,7 @@ from app.rag.retriever import RetrieverService
 def _prepare_final_answer_messages(
     messages: list[BaseMessage],
 ) -> tuple[list[BaseMessage], AIMessage | None]:
+    messages = get_current_turn_messages(messages)
     planner_message: AIMessage | None = None
     conversation = messages
     if messages and isinstance(messages[-1], AIMessage) and not messages[-1].tool_calls:
@@ -60,14 +62,36 @@ def build_graph(
         **model_options,
     )
     tool_model = model.bind_tools(tools)
+    retrieval_model = model.bind_tools([tool for tool in tools if tool.name != MEMORY_TOOL_NAME])
 
     async def agent(state: MessagesState) -> dict[str, Any]:
-        response = await tool_model.ainvoke(
+        current = get_current_turn_messages(state["messages"])
+        calls = [
+            call for message in current if isinstance(message, AIMessage)
+            for call in message.tool_calls
+        ]
+        # Six tool batches leave room for memory, retrieval and follow-up searches,
+        # and terminate before LangGraph's default recursion limit.
+        if sum(isinstance(m, AIMessage) and bool(m.tool_calls) for m in current) >= 6:
+            return {"messages": [AIMessage(content="工具调用预算已用尽，按现有资料回答。")]}
+        memory_used = any(call["name"] == MEMORY_TOOL_NAME for call in calls)
+        response = await (retrieval_model if memory_used else tool_model).ainvoke(
             [
                 SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{AGENT_WORK_PROMPT}"),
-                *state["messages"],
+                *current,
             ]
         )
+        # Enforce at most one memory call, even for duplicate parallel calls or
+        # a provider returning a tool that is no longer in its bound schema.
+        accepted = []
+        for call in response.tool_calls:
+            if call["name"] == MEMORY_TOOL_NAME:
+                if memory_used:
+                    continue
+                memory_used = True
+            accepted.append(call)
+        if len(accepted) != len(response.tool_calls):
+            response = AIMessage(content="" if accepted else "资料准备完成", tool_calls=accepted)
         return {"messages": [response]}
 
     async def answer(state: MessagesState) -> dict[str, Any]:

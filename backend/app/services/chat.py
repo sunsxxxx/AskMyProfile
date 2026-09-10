@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 TOOL_DISPLAY_NAMES: dict[str, str] = {
+    "load_conversation_memory": "对话记忆加载",
     "search_resume": "简历资料检索",
     "search_project": "项目资料检索",
     "search_skill": "技能资料检索",
@@ -26,24 +27,28 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
 
 
 class GraphChatService:
-    def __init__(self, graph: Any, redis: Redis) -> None:
+    def __init__(self, graph: Any, redis: Redis, *, history_ttl_minutes: int) -> None:
         self.graph = graph
         self.redis = redis
+        self.history_ttl_seconds = history_ttl_minutes * 60
 
     async def stream(self, message: str, thread_id: str) -> AsyncIterator[tuple[str, Any]]:
         # AsyncRedisSaver transactions cover one checkpoint, not a whole run.
         # Never mutate the committed thread: even cancellation / process death
         # must leave the previous conversation usable without a cleanup write.
         key = f"chat:committed:v1:{thread_id}"
-        previous = await self.redis.get(key)
+        # This application-owned pointer is outside the saver. Refresh it
+        # atomically; aget_state below refreshes checkpoint data via the saver.
+        previous = await self.redis.getex(key, ex=self.history_ttl_seconds)
         if isinstance(previous, bytes):
             previous = previous.decode()
         base_config = json.loads(previous) if previous else {
             "configurable": {"thread_id": thread_id}
         }
         before = await self.graph.aget_state(base_config)
-        if previous and not before.values:
-            raise RuntimeError("Committed conversation checkpoint is missing")
+        # A checkpoint can expire just before its pointer (or during this read).
+        # Treat missing state as a fresh conversation; retain the pointer value
+        # for the optimistic commit check so concurrent writers remain protected.
         config = {"configurable": {"thread_id": f"chat-run-{uuid.uuid4()}"}}
         messages = [*before.values.get("messages", []), HumanMessage(content=message)]
         async with aclosing(self._stream(message, messages, config)) as events:
@@ -55,11 +60,11 @@ class GraphChatService:
         committed = json.dumps(completed.config, sort_keys=True)
         # Cross-worker optimistic concurrency: only one run based on a given
         # history may commit. A losing run raises through the existing error SSE.
-        # Retain isolated checkpoints for inspection; never delete user history.
+        # Isolated checkpoints expire using the saver's native TTL.
         accepted = await self.redis.eval(
             "if (redis.call('GET', KEYS[1]) or '') == ARGV[1] then "
-            "redis.call('SET', KEYS[1], ARGV[2]); return 1 end; return 0",
-            1, key, previous or "", committed,
+            "redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 end; return 0",
+            1, key, previous or "", committed, self.history_ttl_seconds,
         )
         if not accepted:
             raise RuntimeError("Conversation changed during this request; retry")
