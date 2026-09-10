@@ -39,17 +39,23 @@ export function useChat(onUpdated?: () => void) {
     const assistant = reactive<ChatMessage>({ id: crypto.randomUUID(), role: 'assistant', content: '' })
     messages.value.push(assistant)
     isStreaming.value = true
-    status.value = '正在连接...'
+    status.value = '正在处理问题…'
     controller = new AbortController()
     notifyUpdate()
 
     const handleEvent = (event: SSEEvent) => {
       const data = event.data as Record<string, unknown> | SourceItem[] | null
       if (event.event === 'status' && data && !Array.isArray(data)) {
-        status.value = String(data.message ?? '')
+        if (!assistant.content) status.value = String(data.message ?? '').trim()
       } else if (event.event === 'intermediate' && data && !Array.isArray(data)) {
         const trace = String(data.content ?? '').trim()
-        if (trace) assistant.intermediate = [assistant.intermediate, trace].filter(Boolean).join('\n\n')
+        if (trace) {
+          assistant.intermediate = [assistant.intermediate, trace].filter(Boolean).join('\n\n')
+          // Hidden acknowledgements should not remove the initial waiting state.
+          if (trace.split(/\n+/).some((line) => line.trim() && !line.trim().startsWith('收到问题：'))) {
+            status.value = ''
+          }
+        }
       } else if (event.event === 'token' && data && !Array.isArray(data)) {
         assistant.content += String(data.content ?? '')
         status.value = ''

@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
+from redis.asyncio import Redis
 
 from app.models.chat import SourceItem
 
@@ -23,10 +26,47 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
 
 
 class GraphChatService:
-    def __init__(self, graph: Any) -> None:
+    def __init__(self, graph: Any, redis: Redis) -> None:
         self.graph = graph
+        self.redis = redis
 
     async def stream(self, message: str, thread_id: str) -> AsyncIterator[tuple[str, Any]]:
+        # AsyncRedisSaver transactions cover one checkpoint, not a whole run.
+        # Never mutate the committed thread: even cancellation / process death
+        # must leave the previous conversation usable without a cleanup write.
+        key = f"chat:committed:v1:{thread_id}"
+        previous = await self.redis.get(key)
+        if isinstance(previous, bytes):
+            previous = previous.decode()
+        base_config = json.loads(previous) if previous else {
+            "configurable": {"thread_id": thread_id}
+        }
+        before = await self.graph.aget_state(base_config)
+        if previous and not before.values:
+            raise RuntimeError("Committed conversation checkpoint is missing")
+        config = {"configurable": {"thread_id": f"chat-run-{uuid.uuid4()}"}}
+        messages = [*before.values.get("messages", []), HumanMessage(content=message)]
+        async with aclosing(self._stream(message, messages, config)) as events:
+            async for event in events:
+                yield event
+        completed = await self.graph.aget_state(config)
+        if completed.next or not completed.values:
+            raise RuntimeError("Graph did not finish successfully")
+        committed = json.dumps(completed.config, sort_keys=True)
+        # Cross-worker optimistic concurrency: only one run based on a given
+        # history may commit. A losing run raises through the existing error SSE.
+        # Retain isolated checkpoints for inspection; never delete user history.
+        accepted = await self.redis.eval(
+            "if (redis.call('GET', KEYS[1]) or '') == ARGV[1] then "
+            "redis.call('SET', KEYS[1], ARGV[2]); return 1 end; return 0",
+            1, key, previous or "", committed,
+        )
+        if not accepted:
+            raise RuntimeError("Conversation changed during this request; retry")
+
+    async def _stream(
+        self, message: str, messages: list[Any], config: dict[str, Any]
+    ) -> AsyncIterator[tuple[str, Any]]:
         started = time.perf_counter()
         sources: dict[tuple[str, str, str], SourceItem] = {}
         tool_names_by_call_id: dict[str, str] = {}
@@ -34,55 +74,56 @@ class GraphChatService:
         announced_tool_completions: set[str] = set()
         used_tools = False
         final_stage_announced = False
-        config = {"configurable": {"thread_id": thread_id}}
         yield "intermediate", f"收到问题：{message}"
-        async for part in self.graph.astream(
-            {"messages": [HumanMessage(content=message)]},
+        async with aclosing(self.graph.astream(
+            {"messages": messages},
             config=config,
             stream_mode=["messages", "updates"],
             version="v2",
-        ):
-            if part["type"] == "messages":
-                chunk, metadata = part["data"]
-                content = chunk.content
-                node = metadata.get("langgraph_node")
-                if node == "answer" and isinstance(content, str) and content:
-                    if not final_stage_announced:
-                        for trace in self._final_stage_traces(used_tools):
-                            yield "intermediate", trace
-                        final_stage_announced = True
-                    yield "token", content
-            elif part["type"] == "updates":
-                update = part["data"]
-                agent_update = update.get("agent")
-                if agent_update:
-                    tool_calls = self._tool_calls_from_update(agent_update)
-                    if tool_calls:
-                        used_tools = True
-                        for call_id, tool_name in tool_calls:
-                            if call_id:
-                                tool_names_by_call_id[call_id] = tool_name
-                                if call_id in announced_tool_calls:
-                                    continue
-                                announced_tool_calls.add(call_id)
-                            yield "intermediate", self._tool_started_trace(tool_name)
-                    elif not final_stage_announced:
-                        for trace in self._final_stage_traces(used_tools):
-                            yield "intermediate", trace
-                        final_stage_announced = True
+            durability="sync",
+        )) as parts:
+            async for part in parts:
+                if part["type"] == "messages":
+                    chunk, metadata = part["data"]
+                    content = chunk.content
+                    node = metadata.get("langgraph_node")
+                    if node == "answer" and isinstance(content, str) and content:
+                        if not final_stage_announced:
+                            for trace in self._final_stage_traces(used_tools):
+                                yield "intermediate", trace
+                            final_stage_announced = True
+                        yield "token", content
+                elif part["type"] == "updates":
+                    update = part["data"]
+                    agent_update = update.get("agent")
+                    if agent_update:
+                        tool_calls = self._tool_calls_from_update(agent_update)
+                        if tool_calls:
+                            used_tools = True
+                            for call_id, tool_name in tool_calls:
+                                if call_id:
+                                    tool_names_by_call_id[call_id] = tool_name
+                                    if call_id in announced_tool_calls:
+                                        continue
+                                    announced_tool_calls.add(call_id)
+                                yield "intermediate", self._tool_started_trace(tool_name)
+                        elif not final_stage_announced:
+                            for trace in self._final_stage_traces(used_tools):
+                                yield "intermediate", trace
+                            final_stage_announced = True
 
-                tool_update = update.get("tools")
-                if tool_update:
-                    for call_id, tool_name in self._completed_tools_from_update(
-                        tool_update, tool_names_by_call_id
-                    ):
-                        if call_id:
-                            if call_id in announced_tool_completions:
-                                continue
-                            announced_tool_completions.add(call_id)
-                        yield "intermediate", self._tool_completed_trace(tool_name)
-                    for source in self._sources_from_update(tool_update):
-                        sources[(source.source, source.title, source.section)] = source
+                    tool_update = update.get("tools")
+                    if tool_update:
+                        for call_id, tool_name in self._completed_tools_from_update(
+                            tool_update, tool_names_by_call_id
+                        ):
+                            if call_id:
+                                if call_id in announced_tool_completions:
+                                    continue
+                                announced_tool_completions.add(call_id)
+                            yield "intermediate", self._tool_completed_trace(tool_name)
+                        for source in self._sources_from_update(tool_update):
+                            sources[(source.source, source.title, source.section)] = source
         yield "sources", [source.model_dump() for source in sources.values()]
         logger.info(
             "agent_complete sources=%d duration_ms=%d",

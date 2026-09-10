@@ -123,7 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     checkpointer = await checkpointer_context.__aenter__()
                     await checkpointer.asetup()
                     graph = build_graph(configured, retriever, github, checkpointer)
-                    app.state.chat_service = GraphChatService(graph)
+                    app.state.chat_service = GraphChatService(graph, redis)
                 except Exception:
                     logger.exception("Chat service initialization failed")
             yield

@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -80,17 +81,18 @@ async def chat_stream(payload: ChatRequest, request: Request) -> Response:
         yield sse_event("start", {"request_id": request_id})
         yield sse_event("status", {"message": "正在处理问题..."})
         try:
-            async for event, data in service.stream(payload.message, str(payload.thread_id)):
-                if await request.is_disconnected():
-                    break
-                if event == "token":
-                    yield sse_event("token", {"content": data})
-                elif event == "intermediate":
-                    yield sse_event("intermediate", {"content": data})
-                elif event == "status":
-                    yield sse_event("status", {"message": data})
-                elif event == "sources":
-                    yield sse_event("sources", data)
+            async with aclosing(service.stream(payload.message, str(payload.thread_id))) as events:
+                async for event, data in events:
+                    if await request.is_disconnected():
+                        return
+                    if event == "token":
+                        yield sse_event("token", {"content": data})
+                    elif event == "intermediate":
+                        yield sse_event("intermediate", {"content": data})
+                    elif event == "status":
+                        yield sse_event("status", {"message": data})
+                    elif event == "sources":
+                        yield sse_event("sources", data)
             yield sse_event("done", {})
         except Exception:
             logger.exception("chat_stream_failed request_id=%s", request_id)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import ChatMessage from './components/ChatMessage.vue'
 import { useChat } from './composables/useChat'
 
@@ -15,7 +15,6 @@ function scrollToBottom() {
 }
 
 const { messages, input, status, isStreaming, canSend, send, stop, newConversation } = useChat(scrollToBottom)
-const showStatus = computed(() => isStreaming.value && status.value && !messages.value.at(-1)?.intermediate)
 const prompts = [
   { text: '介绍一下你做过的项目', icon: 'folder' },
   { text: '你 Redis 用得怎么样？', icon: 'database' },
@@ -91,8 +90,8 @@ function resetConversation() {
             :key="message.id"
             :message="message"
             :streaming="isStreaming && index === messages.length - 1 && message.role === 'assistant'"
+            :status="isStreaming && index === messages.length - 1 && message.role === 'assistant' ? status : undefined"
           />
-          <div v-if="showStatus" class="status"><i></i><i></i><i></i>{{ status }}</div>
         </div>
       </section>
 
@@ -151,10 +150,9 @@ button, textarea { font: inherit; } button { color: inherit; }
 .stop-button { display: grid; place-items: center; }.stop-button span { width: 11px; height: 11px; border-radius: 2px; background: #fff; }.composer-wrap > p { margin: clamp(5px, 1.4dvh, 13px) auto 0; color: #727a89; font-size: clamp(10px, 1.3dvh, 12px); text-align: center; }
 .shell--chat { padding: clamp(16px, 2.3vh, 24px) 24px; }.shell--chat .stage { position: relative; grid-template-rows: 58px minmax(0, 1fr) auto; gap: 0; width: min(1220px, 100%); border: 1px solid rgba(224,228,235,.72); border-radius: 24px; padding: 0 28px 18px; background: rgba(255,255,255,.79); box-shadow: 0 12px 40px rgba(64,89,134,.07); backdrop-filter: blur(18px); overflow: hidden; }
 .chat-toolbar { display: flex; justify-content: flex-end; align-items: center; }.new-button { display: flex; align-items: center; gap: 6px; border: 1px solid #e5e8ed; border-radius: 11px; padding: 8px 12px; background: rgba(255,255,255,.72); color: #4c525c; font-size: 12px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }.new-button:hover:not(:disabled) { border-color: #cbd1da; background: rgba(255,255,255,.96); color: #23262b; }.new-button:disabled { opacity: .45; cursor: not-allowed; }
-.message-list { padding: 1px 0 36px; }.status { width: min(100%, 1080px); margin: 0 auto; padding: 5px 22px 13px 69px; display: flex; align-items: center; gap: 4px; color: #8a909c; font-size: 12px; }.status i { width: 3px; height: 3px; border-radius: 50%; background: #9299a5; animation: pulse 1.2s infinite; }.status i:nth-child(2) { animation-delay: .15s; }.status i:nth-child(3) { margin-right: 5px; animation-delay: .3s; }
+.message-list { padding: 1px 0 36px; }
 .shell--chat .composer-wrap { width: min(920px, calc(100% - 44px)); margin: 0 auto; }
 .shell--chat .composer { min-height: 52px; padding: 5px 7px 5px 19px; border-radius: 999px; }.shell--chat .composer textarea { font-size: 14px; }.shell--chat .send-button { width: 39px; height: 39px; }
-@keyframes pulse { 0%, 70%, 100% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-2px); } }
 @media (max-height: 540px) and (min-width: 721px) { .shell:not(.shell--chat) { height: auto; min-height: 100dvh; overflow-y: auto; }.shell:not(.shell--chat) .stage { min-height: 520px; } }
 @media (max-width: 1024px) and (min-width: 721px) { .shell--chat .stage { padding-right: 20px; padding-left: 20px; }.shell--chat .composer-wrap { width: min(880px, calc(100% - 28px)); } }
 @media (max-width: 720px) { .shell { padding: 16px 12px 12px; }.stage { gap: 14px; }.welcome-card { min-height: 0; justify-content: flex-start; padding: 28px 20px 24px; border-radius: 24px; }.welcome__eyebrow { padding: 8px 13px; font-size: 13px; }.welcome-card h1 { margin-top: 24px; font-size: 32px; }.welcome-card > p { font-size: 14px; line-height: 1.75; }.desktop-break { display: none; }.prompt-grid { grid-template-columns: 1fr; gap: 9px; margin-top: 24px; }.prompt-grid button { min-height: 61px; grid-template-columns: 38px 1fr 34px; gap: 12px; padding: 9px 10px 9px 12px; border-radius: 15px; }.prompt-icon { width: 38px; height: 38px; border-radius: 11px; }.prompt-icon svg { width: 20px; height: 20px; }.prompt-text { font-size: 14px; }.prompt-arrow { width: 34px; height: 34px; font-size: 21px; }.truth-note { margin-top: 22px; font-size: 11px; }.composer { min-height: 56px; padding: 6px 8px 6px 13px; }.composer-spark { width: 36px; height: 36px; }.send-button { width: 42px; height: 42px; }.composer-wrap > p { display: none; }.shell--chat { padding: 0; }.shell--chat .stage { width: 100%; grid-template-rows: 54px minmax(0, 1fr) auto; border: 0; border-radius: 0; padding: 0 10px 10px; }.shell--chat .composer-wrap { width: 100%; }.shell--chat .composer { min-height: 50px; padding-left: 15px; } }

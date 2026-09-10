@@ -101,3 +101,21 @@ async def test_normal_sse_stream():
     assert "event: token\ndata: {\"content\":\"我\"}" in response.text
     assert "event: sources" in response.text
     assert "event: done" in response.text
+
+
+async def test_failed_sse_stream_keeps_error_protocol_after_partial_output():
+    class FailingService:
+        async def stream(self, message, thread_id):
+            yield "intermediate", "工具已完成"
+            yield "token", "部分回答"
+            raise RuntimeError("LLM unavailable")
+
+    app = make_app()
+    app.state.chat_service = FailingService()
+    response = await request(
+        app, "POST", "/api/chat/stream",
+        json={"message": "test", "thread_id": str(uuid4())},
+    )
+    names = [line for line in response.text.splitlines() if line.startswith("event:")]
+    assert names == ["event: start", "event: status", "event: intermediate", "event: token", "event: error"]
+    assert '"message":"回答生成失败，请稍后重试。"' in response.text

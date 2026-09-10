@@ -3,36 +3,47 @@ import { computed, ref, watch } from 'vue'
 import type { ChatMessage } from '../types/chat'
 import MarkdownContent from './MarkdownContent.vue'
 
-const props = defineProps<{ message: ChatMessage; streaming?: boolean }>()
+const props = defineProps<{ message: ChatMessage; streaming?: boolean; status?: string }>()
 const intermediateExpanded = ref(!props.message.content)
 let answerStarted = Boolean(props.message.content)
 
-const intermediateLines = computed(() => {
-  if (!props.message.intermediate) return []
+function formatProcessLine(line: string): string {
+  if (/正在调用技能资料检索工具(?:\s+search_skill)?。?/.test(line)) return '正在检索技术栈资料…'
+  if (/正在调用项目资料检索工具(?:\s+search_project)?。?/.test(line)) return '正在检索相关项目经历…'
+  if (/正在调用简历资料检索工具(?:\s+search_resume)?。?/.test(line)) return '正在检索简历与经历资料…'
+  if (/正在调用GitHub 公开仓库检索工具(?:\s+search_github)?。?/.test(line)) return '正在检索 GitHub 项目资料…'
+  if (line === '技能资料检索完成。') return '技术栈资料检索完成'
+  if (line === '项目资料检索完成。') return '项目经历检索完成'
+  if (line === '简历资料检索完成。') return '简历与经历资料检索完成'
+  if (line === 'GitHub 公开仓库检索完成。') return 'GitHub 项目资料检索完成'
+  if (line === 'Agent 判断该问题无需检索个人资料。') return '已确认无需检索额外资料'
+  if (line === '正在生成最终回答。') return '正在组织回答…'
+  return line
+    .replace(/\s+(search_(?:resume|project|skill|github))(?=[。,.，]|$)/g, '')
+    .replace('正在调用', '正在使用')
+    .replace('工具。', '。')
+}
 
-  return props.message.intermediate
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('收到问题：'))
-    .map((line) => {
-      if (/正在调用技能资料检索工具(?:\s+search_skill)?。?/.test(line)) return '正在检索技术栈资料…'
-      if (/正在调用项目资料检索工具(?:\s+search_project)?。?/.test(line)) return '正在检索相关项目经历…'
-      if (/正在调用简历资料检索工具(?:\s+search_resume)?。?/.test(line)) return '正在检索简历与经历资料…'
-      if (/正在调用GitHub 公开仓库检索工具(?:\s+search_github)?。?/.test(line)) return '正在检索 GitHub 项目资料…'
-      if (line === '技能资料检索完成。') return '技术栈资料检索完成'
-      if (line === '项目资料检索完成。') return '项目经历检索完成'
-      if (line === '简历资料检索完成。') return '简历与经历资料检索完成'
-      if (line === 'GitHub 公开仓库检索完成。') return 'GitHub 项目资料检索完成'
-      if (line === 'Agent 判断该问题无需检索个人资料。') return '已确认无需检索额外资料'
-      if (line === '正在生成最终回答。') return '正在组织回答…'
-      return line
-        .replace(/\s+(search_(?:resume|project|skill|github))(?=[。,.，]|$)/g, '')
-        .replace('正在调用', '正在使用')
-        .replace('工具。', '。')
-    })
+const intermediateLines = computed(() => (props.message.intermediate ?? '')
+  .split(/\n+/)
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith('收到问题：'))
+  .map(formatProcessLine))
+const liveStatus = computed(() => props.streaming && !props.message.content
+  ? formatProcessLine(props.status?.trim() ?? '') : '')
+const normalizeLine = (line: string) => line.replace(/[\s。.…，,！!]/g, '')
+const processContent = computed(() => {
+  const lines = [...intermediateLines.value]
+  if (liveStatus.value && normalizeLine(lines.at(-1) ?? '') !== normalizeLine(liveStatus.value)) {
+    lines.push(liveStatus.value)
+  }
+  return lines.join('\n\n')
 })
-
-const intermediateContent = computed(() => intermediateLines.value.join('\n\n'))
+// Keep the container mounted, including answers without intermediate events.
+const hasProcess = ref(false)
+watch(processContent, (content) => {
+  if (content) hasProcess.value = true
+}, { immediate: true })
 const completedLabel = computed(() => {
   const trace = props.message.intermediate ?? ''
   const hasSkill = trace.includes('技能资料检索') || trace.includes('search_skill')
@@ -59,7 +70,7 @@ watch(
   <article class="message" :class="[`message--${message.role}`, { 'message--error': message.error }]">
     <div v-if="message.role === 'assistant'" class="avatar" aria-hidden="true"><span class="avatar__image"><img src="/ai-avatar.png" alt="" /></span></div>
     <div class="message__body">
-      <div v-if="intermediateContent" class="intermediate" :class="{ 'intermediate--collapsed': !intermediateExpanded }" aria-label="处理过程">
+      <div v-if="hasProcess" class="intermediate" :class="{ 'intermediate--collapsed': !intermediateExpanded }" aria-label="处理过程">
         <button
           type="button"
           class="intermediate__toggle"
@@ -74,7 +85,7 @@ watch(
         </button>
         <div class="intermediate__reveal" :class="{ 'intermediate__reveal--expanded': intermediateExpanded }" :aria-hidden="!intermediateExpanded">
           <div class="intermediate__content">
-            <MarkdownContent :content="intermediateContent" /><span v-if="streaming && !message.content" class="cursor cursor--muted" aria-hidden="true"></span>
+            <MarkdownContent :content="processContent" :class="{ 'process--pending': streaming && !message.content }" />
           </div>
         </div>
       </div>
@@ -114,7 +125,7 @@ watch(
 .intermediate__content :deep(.markdown) { padding: 5px 3px 1px 21px; color: #858c97; font-size: 12px; line-height: 1.5; }
 .intermediate__content :deep(.markdown p) { position: relative; margin: 0 0 3px; }
 .intermediate__content :deep(.markdown p)::before { content: ''; position: absolute; top: .68em; left: -13px; width: 3px; height: 3px; border-radius: 50%; background: #bdc2ca; }
-.cursor--muted { height: 12px; background: #a5abb4; }
+.intermediate__content :deep(.process--pending p:last-child)::after { content: ''; display: inline-block; width: 4px; height: 11px; margin-left: 5px; vertical-align: -1px; border-radius: 2px; background: #a5abb4; animation: blink 1s step-end infinite; }
 .sources { margin-top: 18px; color: #8a909c; font-size: 13px; }
 .sources summary { width: fit-content; display: flex; align-items: center; gap: 5px; padding: 3px 1px; border-radius: 4px; cursor: pointer; user-select: none; list-style: none; transition: color .18s ease; }
 .sources summary::-webkit-details-marker { display: none; }
