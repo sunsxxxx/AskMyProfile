@@ -13,7 +13,7 @@
 - 前端：Vue 3、TypeScript、Vite、Composition API、Markdown It、DOMPurify、Fetch ReadableStream
 - 后端：Python 3.12、FastAPI、Pydantic Settings、LangChain、LangGraph、httpx
 - AI：OpenAI-compatible Chat API、DashScope Embedding
-- 数据：Redis 8.4（Vector Search、LangGraph Checkpointer、Rate Limit、GitHub Cache）
+- 数据：Redis 8.4（Conversation Memory、Vector Search、LangGraph Checkpointer、Rate Limit、GitHub Cache）
 - 部署：Docker、Docker Compose、Nginx
 
 ## 系统架构
@@ -23,7 +23,13 @@ flowchart TD
     A[HR Browser] --> B[Vue Chat]
     B -->|POST SSE| C[FastAPI]
     C --> D[Redis Lua Rate Limiter]
-    D --> E[LangGraph Agent]
+    D --> R[Memory Router]
+    R --> Q{need_memory?}
+    Q -->|false：不读取历史| S[本轮 LangGraph State]
+    Q -->|true| V[Redis Conversation History]
+    V --> W[筛选相关历史]
+    W --> S
+    S --> E[LangGraph Agent]
     E --> F[search_resume]
     E --> G[search_project]
     E --> H[search_skill]
@@ -34,8 +40,9 @@ flowchart TD
     I --> K[GitHub REST API]
     I --> L[Redis Cache]
     E --> M[OpenAI-compatible LLM]
-    E --> N[Redis Checkpointer]
+    E --> N[Redis 临时 run Checkpointer]
     M --> C
+    C -->|成功完成后 CAS 追加当前 Q/A| V
     C -->|start/status/token/sources/done| B
 ```
 
@@ -46,11 +53,15 @@ flowchart TD
     START --> Agent
     Agent --> Decision{tool_calls?}
     Decision -->|yes| Tools[ToolNode]
-    Tools --> Agent
-    Decision -->|final answer| END
+    Tools --> ToolMessage
+    ToolMessage --> Agent
+    Decision -->|no| Answer
+    Answer --> END
 ```
 
-图使用显式 `StateGraph(MessagesState)`。`tools_condition` 只判断模型是否返回工具调用，`ToolNode` 执行四个工具，Redis Checkpointer 按浏览器传入的 UUID `thread_id` 保存消息状态。因此“为什么在这个项目里用 Redis？”可以结合上一轮项目语境。没有 Supervisor、Planner、Reflection 或多 Agent。
+图使用显式 `StateGraph(AgentState)`，其中 `AgentState` 扩展 `MessagesState`。`tools_condition` 判断 Agent 是否返回 `tool_calls`；有工具调用时由 `ToolNode` 执行，并将 `ToolMessage` 返回 Agent，继续本轮 ReAct / Tool Calling 循环；没有工具调用时进入独立 `answer` 节点生成最终回答，再到 END。
+
+浏览器的 UUID `thread_id` 用于查找独立的 Conversation Memory。每个新请求都创建 `chat-run-<UUID>`，Redis Checkpointer 只保存这一次运行的 `HumanMessage / AIMessage / ToolMessage` 等临时执行状态，不恢复上一轮 checkpoint。“为什么在这个项目里用 Redis？”所需的项目语境由 Memory Router 判断后按需加载、筛选并注入；**不再每轮把完整历史自动发送给 LLM**。
 
 ## Tools
 
@@ -76,12 +87,13 @@ Markdown Source of Truth
 
 每个 chunk 带有相对路径 `source/path`、`category`、`title`、`project` 和 `section`，绝不保存服务器绝对路径。删除 Redis 后可从 Markdown 完整重建。当前资料已根据本地工程源码核验整理；参见 [knowledge/README.md](knowledge/README.md)。
 
-## Redis 的四种用途
+## Redis 的五种用途
 
 1. `langchain-redis` 向量索引：保存知识库 embedding，使用 COSINE 相似度及 TAG metadata filter。
-2. `langgraph-checkpoint-redis`：保存每次独立运行的执行快照；跨轮问答使用独立 Redis List，刷新浏览器后凭 `thread_id` 按需加载。
-3. Lua Sliding Window：原子限制同一 IP 任意连续 60 秒最多 5 个问题。
-4. GitHub Cache：profile、仓库、languages 和 README 缓存 300–600 秒，降低 API 限额和延迟。
+2. Conversation Memory：独立 Redis List 保存成功完成的问答，默认保留 24 小时、最多 30 轮，按浏览器 `thread_id` 按需加载；提交指针使用相同 TTL。
+3. `langgraph-checkpoint-redis`：保存每个独立 `chat-run-<UUID>` 的 ReAct 执行快照，默认 TTL 为 60 分钟。
+4. Lua Sliding Window：原子限制同一 IP 任意连续 60 秒最多 5 个问题。
+5. GitHub Cache：profile、仓库、languages 和 README 缓存 300–600 秒，降低 API 限额和延迟。
 
 重新索引只执行 `FT.DROPINDEX <REDIS_INDEX_NAME> DD`，不会执行 `FLUSHALL` 或 `FLUSHDB`，其他 Redis 数据不受影响。
 
@@ -122,6 +134,8 @@ REDIS_URL=redis://localhost:6379
 
 ```env
 LOG_TIMEZONE=Asia/Shanghai
+CHAT_HISTORY_TTL_MINUTES=1440
+CHECKPOINT_TTL_MINUTES=60
 GITHUB_USERNAME=公开 GitHub 用户名
 GITHUB_TOKEN=可留空；配置后有更高 API 限额
 GITHUB_CACHE_TTL=600
@@ -263,6 +277,39 @@ docker compose config
 
 ## 按需对话记忆与 TTL
 
+### 跨轮历史与本轮状态
+
+| 类型 | 数据与用途 | 生命周期 |
+|---|---|---|
+| Conversation Memory | `chat:history:{thread_id}` 独立保存跨轮历史，只包含成功完成的 User Question 和 Assistant Final Answer；按需加载 | 默认 24 小时，最多 30 轮 |
+| LangGraph State / Checkpoint | 每次独立 `chat-run-<UUID>` 的本轮 ReAct 状态，含 `HumanMessage / AIMessage / ToolMessage` 和选中的 `memory_messages` | 临时状态，默认 TTL 60 分钟 |
+
+Conversation Memory 不保存 `ToolMessage`、`tool_calls`、`intermediate`、`status`、`sources` 或 Agent 中间状态。临时 checkpoint 过期不影响仍在有效期内的跨轮问答。
+
+### 完整执行流程
+
+```mermaid
+flowchart TD
+    Question[用户问题] --> Router[Memory Router]
+    Router --> Need{是否依赖历史？}
+    Need -->|否：不读取历史| State[本轮 LangGraph State]
+    Need -->|是：need_memory=true| History[Redis History 最近问答]
+    History --> Select[筛选相关历史]
+    Select --> State
+    State --> START
+    START --> Agent
+    Agent --> Calls{tool_calls?}
+    Calls -->|Yes| ToolNode
+    ToolNode --> ToolMessage
+    ToolMessage --> Agent
+    Calls -->|No| Answer
+    Answer --> END
+    END --> Success[流完整结束且最终回答有效]
+    Success --> Commit[CAS 成功：Conversation Memory 写入当前 Q/A]
+```
+
+**不再每轮把完整历史自动发送给 LLM。** `need_memory=false` 时不读取 QA 历史；提交指针的读取仅用于 CAS，并不加载对话内容。本轮内部仍保留完整的 `Agent → ToolNode → ToolMessage → Agent → … → Answer` 循环。
+
 每次 `/api/chat/stream` 请求先通过原有限流检查，再进入 `GraphChatService`：
 
 1. 读取 `chat:committed:v1:<thread_id>`，仅作为并发提交版本，不恢复旧 checkpoint。
@@ -273,15 +320,20 @@ docker compose config
 
 `MemoryService` 复用现有 async Redis 连接，不创建额外连接或引入依赖。普通记忆日志只包含 thread_id、判断结果和轮数，不记录对话正文。
 
-Redis key：
+### 两种独立 TTL
 
-- `chat:history:<thread_id>`：List，每项 JSON **只有 `user` 和 `assistant`**；最多保留最近 30 轮。每次成功追加后刷新 **86400 秒（24 小时）** TTL，读取不续期。不存工具消息、tool_calls、planner、sources 或状态。
-- `chat:committed:v1:<thread_id>`：最后成功运行的 checkpoint 配置 JSON，仍用于并发隔离。仅成功提交时续期；不作为下一轮上下文来源。
-- Saver 自己的 checkpoint、工具写入和 registry key：按内部 `chat-run-<UUID>` 保存本轮执行快照，由官方 Saver 原生 TTL 回收。
+| Settings / 环境变量 | 默认值（分钟） | 作用数据 |
+|---|---|---|
+| `chat_history_ttl_minutes` / `CHAT_HISTORY_TTL_MINUTES` | 1440（86400 秒） | `chat:history:{thread_id}` 和 `chat:committed:v1:{thread_id}` |
+| `checkpoint_ttl_minutes` / `CHECKPOINT_TTL_MINUTES` | 60（3600 秒） | Saver 内部按 `chat-run-<UUID>` 保存的 checkpoint、latest pointer、工具写入和 registry key |
 
-`CHAT_HISTORY_TTL_MINUTES=1440` 继续控制执行 checkpoint 和提交指针 TTL；独立 QA 历史固定 24 小时。Saver 仍使用 `refresh_on_read=True`，但应用不再读取上一轮 checkpoint，旧快照可以独立过期。历史过期后，依赖上下文但无法确定对象的问题会请求用户澄清。
+`MemoryService` 必须注入聊天历史 TTL，并在内部统一以 `ttl_minutes * 60` 转换成秒，不再硬编码 24 小时。历史 List 每项 JSON **只有 `user` 和 `assistant`**；成功提交的同一 Lua 操作追加 QA、裁剪到最近 30 轮，并以相同的聊天历史 TTL 续期历史和提交指针。读取不续期，CAS 失败不写入、不续期。
 
-旧版本 checkpoint 中的对话不会自动迁移到 QA List，也不会再被注入新请求；新版本只积累成功完成的新问答。没有扫描或删除旧数据。部署前没有 TTL 的旧 checkpoint 仍需单独安排清理。
+`chat:committed:v1:{thread_id}` 的值仍是最后成功运行的 checkpoint 配置 JSON，仅作为并发提交版本使用，不用于恢复上一轮上下文。它可以比对应的临时 checkpoint 存活更久；这是两类数据的预期生命周期，不影响历史加载或 CAS。
+
+Saver 使用[官方原生 TTL 配置](https://redis-developer.github.io/langgraph-redis/main/user_guide/ttl.html)：`ttl={"default_ttl": settings.checkpoint_ttl_minutes, "refresh_on_read": True}`，单位为分钟，由 Redis 自动过期，没有新增定时清理任务。保留读取续期行为，应用仅读取当前 run 的 checkpoint。将 `CHAT_HISTORY_TTL_MINUTES` 改为 720 后，历史及提交指针在下次成功提交时使用 43200 秒 TTL；修改 `CHECKPOINT_TTL_MINUTES` 只影响临时执行快照，不改变 Conversation History TTL。历史过期后，依赖上下文但无法确定对象的问题会请求用户澄清。
+
+旧版本 checkpoint 中的对话不会自动迁移到 QA List，也不会再被注入新请求；新版本只积累成功完成的新问答。配置需重启后端生效；已有 key 保留原 TTL，直到对应的写入或续期发生，不会批量重设旧数据的过期时间。没有扫描或删除旧数据。部署前没有 TTL 的旧 checkpoint 仍需单独安排清理。
 
 ### 验证
 
@@ -290,13 +342,16 @@ redis-cli LRANGE "chat:history:<前端thread_id>" 0 -1
 redis-cli TTL "chat:history:<前端thread_id>"
 redis-cli GET "chat:committed:v1:<前端thread_id>"
 redis-cli TTL "chat:committed:v1:<前端thread_id>"
+# 从提交指针 JSON 取出 configurable.thread_id（chat-run-...），再查该 run 的 key。
+redis-cli --scan --pattern "*<chat-run-UUID>*"
+redis-cli TTL "<扫描得到的 checkpoint / checkpoint_latest / checkpoint_write / write_keys_zset key>"
 ```
 
-成功回答后历史 TTL 应接近 86400 秒；再成功回答会续期。失败请求不新增 QA。
+默认配置下，成功回答后历史及提交指针 TTL 应接近 86400 秒，临时 run 的 Saver key TTL 应接近 3600 秒；再成功回答会续期历史及提交指针。失败请求不新增 QA。
 
 ```powershell
 # 项目根目录；fakeredis 执行真实 Lua，Graph 测试使用 InMemorySaver，不访问真实 LLM。
 backend/.venv/Scripts/python.exe -m pytest backend/tests -q -p no:cacheprovider
 ```
 
-新增测试覆盖按需读取、候选/注入裁剪、成功写入、TTL 续期、30 轮上限、失败与取消隔离、流关闭、并发 CAS、非法完成状态，以及真实 Graph/ToolNode 的多轮工具调用和最终 prompt。模型分类和选择使用结构化测试替身验证调用协议；线上模型的语义判断质量需另外使用真实模型评估。
+记忆测试覆盖默认及自定义 TTL 的启动注入、两类配置互不影响、历史和提交指针同步续期、读取不续期、30 轮上限、CAS 冲突和失败隔离，并使用真实 Graph/ToolNode 验证多轮工具调用、临时 thread 隔离、只保存最终 QA，以及仅 `need_memory=true` 时读取历史。Saver TTL 测试使用官方 `AsyncRedisSaver` 和 fakeredis，替换 fakeredis 不支持的搜索索引创建，实际执行 checkpoint、工具写入及 TTL 操作；不等同于真实 Redis 服务集成测试。模型分类、选择和回答使用测试替身，不访问真实 LLM。

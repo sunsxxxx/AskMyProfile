@@ -85,11 +85,13 @@ return 1
 
 
 class MemoryService:
-    def __init__(self, redis: Redis, *, max_turns: int = 30, recent_turns: int = 10) -> None:
+    def __init__(
+        self, redis: Redis, *, ttl_minutes: int, max_turns: int = 30, recent_turns: int = 10,
+    ) -> None:
         self.redis = redis
         self.max_turns = max_turns
         self.recent_turns = recent_turns
-        self.ttl_seconds = 24 * 60 * 60
+        self.ttl_seconds = ttl_minutes * 60
 
     @staticmethod
     def key(thread_id: str) -> str:

@@ -117,7 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     checkpointer_context = AsyncRedisSaver.from_conn_string(
                         configured.redis_url,
                         ttl={
-                            "default_ttl": configured.chat_history_ttl_minutes,
+                            "default_ttl": configured.checkpoint_ttl_minutes,
                             "refresh_on_read": True,
                         },
                         connection_args={
@@ -132,7 +132,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.chat_service = GraphChatService(
                         graph, redis,
                         history_ttl_minutes=configured.chat_history_ttl_minutes,
-                        memory=MemoryService(redis),
+                        memory=MemoryService(redis, ttl_minutes=configured.chat_history_ttl_minutes),
                         memory_router=MemoryRouter(model),
                     )
                 except Exception:
