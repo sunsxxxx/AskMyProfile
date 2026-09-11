@@ -56,10 +56,7 @@ export function useChat(onUpdated?: () => void) {
         const trace = String(data.content ?? '').trim()
         if (trace) {
           assistant.intermediate = [assistant.intermediate, trace].filter(Boolean).join('\n\n')
-          // Hidden acknowledgements should not remove the initial waiting state.
-          if (trace.split(/\n+/).some((line) => line.trim() && !line.trim().startsWith('收到问题：'))) {
-            status.value = ''
-          }
+          status.value = ''
         }
       } else if (event.event === 'token' && data && !Array.isArray(data)) {
         assistant.content += String(data.content ?? '')

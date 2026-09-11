@@ -27,7 +27,7 @@ function formatProcessLine(line: string): string {
 const intermediateLines = computed(() => (props.message.intermediate ?? '')
   .split(/\n+/)
   .map((line) => line.trim())
-  .filter((line) => line && !line.startsWith('收到问题：'))
+  .filter((line) => line)
   .map(formatProcessLine))
 const liveStatus = computed(() => props.streaming && !props.message.content
   ? formatProcessLine(props.status?.trim() ?? '') : '')

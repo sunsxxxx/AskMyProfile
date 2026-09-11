@@ -55,7 +55,7 @@ class GraphChatService:
             logger.info("memory_selected turns=%d", len(selected))
         config = {"configurable": {"thread_id": f"chat-run-{uuid.uuid4()}"}}
         messages = [HumanMessage(content=message)]
-        async with aclosing(self._stream(message, messages, config, self.memory.messages(selected))) as events:
+        async with aclosing(self._stream(messages, config, self.memory.messages(selected))) as events:
             async for event in events:
                 yield event
         completed = await self.graph.aget_state(config)
@@ -72,7 +72,7 @@ class GraphChatService:
         )
 
     async def _stream(
-        self, message: str, messages: list[Any], config: dict[str, Any],
+        self, messages: list[Any], config: dict[str, Any],
         memory_messages: list[Any],
     ) -> AsyncIterator[tuple[str, Any]]:
         started = time.perf_counter()
@@ -82,7 +82,6 @@ class GraphChatService:
         announced_tool_completions: set[str] = set()
         used_tools = False
         final_stage_announced = False
-        yield "intermediate", f"收到问题：{message}"
         async with aclosing(self.graph.astream(
             {"messages": messages, "memory_messages": memory_messages},
             config=config,
