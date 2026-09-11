@@ -79,7 +79,7 @@ Markdown Source of Truth
 ## Redis 的四种用途
 
 1. `langchain-redis` 向量索引：保存知识库 embedding，使用 COSINE 相似度及 TAG metadata filter。
-2. `langgraph-checkpoint-redis`：按 `thread_id` 保存对话状态，刷新浏览器后继续追问。
+2. `langgraph-checkpoint-redis`：保存每次独立运行的执行快照；跨轮问答使用独立 Redis List，刷新浏览器后凭 `thread_id` 按需加载。
 3. Lua Sliding Window：原子限制同一 IP 任意连续 60 秒最多 5 个问题。
 4. GitHub Cache：profile、仓库、languages 和 README 缓存 300–600 秒，降低 API 限额和延迟。
 
@@ -261,59 +261,42 @@ docker compose config
 **如何创建 Redis Vector Index**：无需手写 schema。`reindex` 初始化 `RedisVectorStore` 并在首次写入时创建 `REDIS_INDEX_NAME`；metadata schema 与 COSINE 距离在 `backend/app/rag/vector_store.py` 中定义。
 
 
-## 聊天历史 TTL
+## 按需对话记忆与 TTL
 
-`CHAT_HISTORY_TTL_MINUTES=1440`（默认值，必须为正整数）控制聊天历史保留时间，单位为分钟。
-启动时传给 `AsyncRedisSaver.from_conn_string` 的配置为
-`ttl={"default_ttl": configured.chat_history_ttl_minutes, "refresh_on_read": True}`。
-已核对本地 `langgraph-checkpoint-redis==0.5.2` 的实际 API，依赖最低版本设为 0.5.2。
-[官方 TTL 文档](https://redis-developer.github.io/langgraph-redis/main/user_guide/ttl.html)。
+每次 `/api/chat/stream` 请求先通过原有限流检查，再进入 `GraphChatService`：
 
-checkpoint、工具写入及相关 registry key 由官方 Saver 设置 Redis 原生 TTL，无定时清理任务。
-访问 checkpoint 会刷新其 TTL；当前完整 MessagesState 会在后续对话中继续保存。
-旧运行快照未被访问时可独立过期，不影响最新快照中的完整对话。
-应用自己的 `chat:committed:v1:<thread_id>` 提交指针使用相同保留时间，读取时通过 GETEX 续期、提交时通过原有 Lua CAS 加 SET EX 设置过期时间。
-指针或 checkpoint 已过期时，相同 thread_id 从新对话开始，不返回“checkpoint missing”错误。
-`RATE_LIMIT_KEY_TTL_SECONDS` 和 RAG 知识库配置保持独立，不受聊天 TTL 配置影响。
+1. 读取 `chat:committed:v1:<thread_id>`，仅作为并发提交版本，不恢复旧 checkpoint。
+2. `MemoryRouter` 复用 Agent 的 ChatOpenAI，使用 `with_structured_output`（function calling、temperature=0）判断当前问题是否存在上下文依赖。独立问题返回 false；代词、省略、承接、比较对象缺失或引用“刚才/前面/上一个”返回 true。
+3. 只有 true 才读取 `chat:history:<thread_id>` 最近 10 轮。第二次结构化判断选择最多 4 轮相关 QA；ID 去重、越界过滤并恢复时间顺序。空历史或无相关项不注入。每轮候选问题/答案最多使用 2000/6000 字符，存储仍保存完整最终问答。
+4. 创建全新 `chat-run-<UUID>`。`messages` 只包含当前问题和本轮工具执行消息；筛选后的 QA 放在独立 `memory_messages` 字段，组装 Agent 与最终回答 prompt 时插入 system 与当前问题之间。保留 `agent → tools → agent → answer`、工具调用预算、planner 移除和 SourceItem 聚合。
+5. 流完整结束、Graph 无待执行节点且产生非空最终 AI 回答后，通过同一 Lua 脚本进行提交指针 CAS 和 QA 追加。并发冲突只允许一个请求提交；模型错误、工具循环异常、未完成执行、取消、流提前关闭都不会进入提交步骤。Router/筛选错误也通过现有 error SSE 返回，不静默加载全部历史。
 
-更改环境配置后需重启后端。对话过期针对服务器端保存的数据，不会主动清除浏览器已显示的消息。
-注意：官方配置只作用于启用后的写入，以及已有 TTL 的 checkpoint 读取续期；不会自动为部署前 TTL=-1 的旧 checkpoint 补设期限。
-已有永久数据需要单独安排一次性迁移；本次没有扫描、删除或修改既有生产数据，也没有引入清理任务。
+`MemoryService` 复用现有 async Redis 连接，不创建额外连接或引入依赖。普通记忆日志只包含 thread_id、判断结果和轮数，不记录对话正文。
 
-### 用 Redis CLI 验证
+Redis key：
 
-先通过聊天页面发送一条消息，记录请求中的 thread_id，然后执行（Docker 环境可在各命令前加 `docker compose exec redis`）：
+- `chat:history:<thread_id>`：List，每项 JSON **只有 `user` 和 `assistant`**；最多保留最近 30 轮。每次成功追加后刷新 **86400 秒（24 小时）** TTL，读取不续期。不存工具消息、tool_calls、planner、sources 或状态。
+- `chat:committed:v1:<thread_id>`：最后成功运行的 checkpoint 配置 JSON，仍用于并发隔离。仅成功提交时续期；不作为下一轮上下文来源。
+- Saver 自己的 checkpoint、工具写入和 registry key：按内部 `chat-run-<UUID>` 保存本轮执行快照，由官方 Saver 原生 TTL 回收。
+
+`CHAT_HISTORY_TTL_MINUTES=1440` 继续控制执行 checkpoint 和提交指针 TTL；独立 QA 历史固定 24 小时。Saver 仍使用 `refresh_on_read=True`，但应用不再读取上一轮 checkpoint，旧快照可以独立过期。历史过期后，依赖上下文但无法确定对象的问题会请求用户澄清。
+
+旧版本 checkpoint 中的对话不会自动迁移到 QA List，也不会再被注入新请求；新版本只积累成功完成的新问答。没有扫描或删除旧数据。部署前没有 TTL 的旧 checkpoint 仍需单独安排清理。
+
+### 验证
 
 ```bash
+redis-cli LRANGE "chat:history:<前端thread_id>" 0 -1
+redis-cli TTL "chat:history:<前端thread_id>"
 redis-cli GET "chat:committed:v1:<前端thread_id>"
 redis-cli TTL "chat:committed:v1:<前端thread_id>"
 ```
 
-GET 返回的 JSON 包含内部 `thread_id`（`chat-run-...`）和最终 `checkpoint_id`。
-使用该内部 thread_id 查找关联 key，再将查到的完整 key 传给 TTL：
-
-```bash
-redis-cli --scan --pattern "*chat-run-<运行UUID>*"
-redis-cli TTL "<上一步查到的checkpoint或checkpoint_write或write_keys_zset key>"
-```
-
-刚创建的 key 应接近 **86400** 秒。等待几秒再次执行 TTL，数值应下降。
-使用同一前端 thread_id 再发消息，提交指针会指向新运行；按 GET → SCAN → TTL 再检查，新运行的 key 和提交指针应重新接近 86400。
-上次被恢复的最终 checkpoint 也会通过官方 refresh_on_read 续期。
-仅执行 Redis CLI 的 GET、SCAN 或 TTL 不会触发 Saver 的读取续期。
-24 小时不通过应用/Saver 访问后，对应 key 的 TTL 应为 **-2**（已不存在）；**-1** 表示没有过期时间，需要检查是否为启用配置前的旧数据。
-共享搜索索引和知识库不属于单个聊天的历史数据，不要求随 thread 过期。
-
-### 自动验证
+成功回答后历史 TTL 应接近 86400 秒；再成功回答会续期。失败请求不新增 QA。
 
 ```powershell
-# 在项目根目录运行，不访问外部模型。
+# 项目根目录；fakeredis 执行真实 Lua，Graph 测试使用 InMemorySaver，不访问真实 LLM。
 backend/.venv/Scripts/python.exe -m pytest backend/tests -q -p no:cacheprovider
-
-# 可选：仅指向专用测试 Redis 8 / Redis Stack，启用官方 Saver 集成测试。
-$env:TEST_REDIS_URL = 'redis://localhost:6379'
-backend/.venv/Scripts/python.exe -m pytest backend/tests/test_history_ttl.py -q -p no:cacheprovider
 ```
 
-集成测试检查新建 checkpoint/相关 key 的 86400 秒 TTL，将测试专属 key 的 TTL 调短后验证官方读取恢复 TTL，再验证多轮对话和原生过期。
-测试只清理本次 UUID 对应的数据，不执行 FLUSHDB，不调用真实 LLM；未设置 TEST_REDIS_URL 时跳过该项。
+新增测试覆盖按需读取、候选/注入裁剪、成功写入、TTL 续期、30 轮上限、失败与取消隔离、流关闭、并发 CAS、非法完成状态，以及真实 Graph/ToolNode 的多轮工具调用和最终 prompt。模型分类和选择使用结构化测试替身验证调用协议；线上模型的语义判断质量需另外使用真实模型评估。

@@ -13,7 +13,7 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
-from app.agent.graph import build_graph
+from app.agent.graph import build_graph, create_chat_model
 from app.api.routes import router
 from app.core.config import Settings, get_settings
 from app.core.logging import TimezoneFormatter
@@ -25,6 +25,7 @@ from app.rag.embeddings import create_embeddings
 from app.rag.retriever import RetrieverService
 from app.rag.vector_store import create_vector_store
 from app.services.chat import GraphChatService
+from app.services.memory import MemoryRouter, MemoryService
 
 
 logger = logging.getLogger(__name__)
@@ -126,10 +127,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     checkpointer = await checkpointer_context.__aenter__()
                     await checkpointer.asetup()
-                    graph = build_graph(configured, retriever, github, checkpointer)
+                    model = create_chat_model(configured)
+                    graph = build_graph(configured, retriever, github, checkpointer, model=model)
                     app.state.chat_service = GraphChatService(
                         graph, redis,
                         history_ttl_minutes=configured.chat_history_ttl_minutes,
+                        memory=MemoryService(redis),
+                        memory_router=MemoryRouter(model),
                     )
                 except Exception:
                     logger.exception("Chat service initialization failed")

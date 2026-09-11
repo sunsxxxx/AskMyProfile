@@ -8,17 +8,17 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing
 from typing import Any
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from redis.asyncio import Redis
 
 from app.models.chat import SourceItem
+from app.services.memory import ConversationTurn, MemoryRouter, MemoryService
 
 
 logger = logging.getLogger(__name__)
 
 
 TOOL_DISPLAY_NAMES: dict[str, str] = {
-    "load_conversation_memory": "对话记忆加载",
     "search_resume": "简历资料检索",
     "search_project": "项目资料检索",
     "search_skill": "技能资料检索",
@@ -27,7 +27,12 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
 
 
 class GraphChatService:
-    def __init__(self, graph: Any, redis: Redis, *, history_ttl_minutes: int) -> None:
+    def __init__(
+        self, graph: Any, redis: Redis, *, history_ttl_minutes: int,
+        memory: MemoryService, memory_router: MemoryRouter,
+    ) -> None:
+        self.memory = memory
+        self.memory_router = memory_router
         self.graph = graph
         self.redis = redis
         self.history_ttl_seconds = history_ttl_minutes * 60
@@ -37,40 +42,38 @@ class GraphChatService:
         # Never mutate the committed thread: even cancellation / process death
         # must leave the previous conversation usable without a cleanup write.
         key = f"chat:committed:v1:{thread_id}"
-        # This application-owned pointer is outside the saver. Refresh it
-        # atomically; aget_state below refreshes checkpoint data via the saver.
-        previous = await self.redis.getex(key, ex=self.history_ttl_seconds)
+        # Read only the concurrency token, never restore previous graph messages.
+        previous = await self.redis.get(key)
         if isinstance(previous, bytes):
             previous = previous.decode()
-        base_config = json.loads(previous) if previous else {
-            "configurable": {"thread_id": thread_id}
-        }
-        before = await self.graph.aget_state(base_config)
-        # A checkpoint can expire just before its pointer (or during this read).
-        # Treat missing state as a fresh conversation; retain the pointer value
-        # for the optimistic commit check so concurrent writers remain protected.
+        decision = await self.memory_router.decide(message)
+        logger.info("memory_decision thread_id=%s need_memory=%s", thread_id, str(decision.need_memory).lower())
+        selected = []
+        if decision.need_memory:
+            history = await self.memory.load(thread_id)
+            selected = await self.memory_router.select(message, history)
+            logger.info("memory_selected turns=%d", len(selected))
         config = {"configurable": {"thread_id": f"chat-run-{uuid.uuid4()}"}}
-        messages = [*before.values.get("messages", []), HumanMessage(content=message)]
-        async with aclosing(self._stream(message, messages, config)) as events:
+        messages = [HumanMessage(content=message)]
+        async with aclosing(self._stream(message, messages, config, self.memory.messages(selected))) as events:
             async for event in events:
                 yield event
         completed = await self.graph.aget_state(config)
         if completed.next or not completed.values:
             raise RuntimeError("Graph did not finish successfully")
-        committed = json.dumps(completed.config, sort_keys=True)
-        # Cross-worker optimistic concurrency: only one run based on a given
-        # history may commit. A losing run raises through the existing error SSE.
-        # Isolated checkpoints expire using the saver's native TTL.
-        accepted = await self.redis.eval(
-            "if (redis.call('GET', KEYS[1]) or '') == ARGV[1] then "
-            "redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 end; return 0",
-            1, key, previous or "", committed, self.history_ttl_seconds,
+        final = completed.values.get("messages", [])[-1:]
+        if not final or not isinstance(final[0], AIMessage) or final[0].tool_calls or not final[0].text.strip():
+            raise RuntimeError("Graph did not produce a final answer")
+        await self.memory.commit(
+            thread_id, ConversationTurn(user=message, assistant=final[0].text),
+            pointer_key=key, previous=previous or "",
+            committed=json.dumps(completed.config, sort_keys=True),
+            pointer_ttl_seconds=self.history_ttl_seconds,
         )
-        if not accepted:
-            raise RuntimeError("Conversation changed during this request; retry")
 
     async def _stream(
-        self, message: str, messages: list[Any], config: dict[str, Any]
+        self, message: str, messages: list[Any], config: dict[str, Any],
+        memory_messages: list[Any],
     ) -> AsyncIterator[tuple[str, Any]]:
         started = time.perf_counter()
         sources: dict[tuple[str, str, str], SourceItem] = {}
@@ -81,7 +84,7 @@ class GraphChatService:
         final_stage_announced = False
         yield "intermediate", f"收到问题：{message}"
         async with aclosing(self.graph.astream(
-            {"messages": messages},
+            {"messages": messages, "memory_messages": memory_messages},
             config=config,
             stream_mode=["messages", "updates"],
             version="v2",
